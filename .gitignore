@@ -1,6 +1,10 @@
 # OS files
 .DS_Store
 
+# IDEs and Editors
+.vscode/
+.idea/
+
 # Frontend
 frontend/node_modules/
 frontend/dist/
@@ -10,3 +14,7 @@ frontend/.env
 backend/target/
 backend/.mvn/
 backend/*.jar
+
+# Ignore Spring Boot configuration files containing secrets
+backend/src/main/resources/application.yml
+backend/src/main/resources/application.properties
