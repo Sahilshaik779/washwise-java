@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: washwise
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:washwise_spring_db}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASSWORD:Sahil#2127}
+  jpa:
+    hibernate:
+      # 'update' tells Spring to automatically create the tables since the DB is empty
+      ddl-auto: update 
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+app:
+  frontend-url: ${FRONTEND_URL:http://localhost:5173}
+  security:
+    jwt-secret: ${JWT_SECRET:your-very-long-secret-key-that-is-at-least-256-bits-long}
+    jwt-expiration-minutes: 30
+  cors:
+    allowed-origins:
+      - ${FRONTEND_URL:http://localhost:5173}
+  mailgun:
+    api-key: ${MAILGUN_API_KEY:}
+    domain: ${MAILGUN_DOMAIN:}
