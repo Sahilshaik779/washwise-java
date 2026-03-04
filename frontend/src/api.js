@@ -18,6 +18,21 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Catch expired tokens automatically and redirect to login
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+      console.error("Session expired. Logging out.");
+      localStorage.removeItem("access_token");
+      
+      // Redirect to login page
+      window.location.href = "/";
+    }
+    return Promise.reject(error);
+  }
+);
+
 // --- HARDCODED DEFAULTS (Fallbacks until backend fetch works) ---
 export const SERVICE_PRICES = {
   "wash_and_fold": { name: "Wash and Fold", price: 10 },
@@ -41,7 +56,7 @@ export const loginUser = async (username, password) => {
   return response.data;
 };
 
-// 2. Added staffSecret for the dual-portal registration
+// Added staffSecret for the dual-portal registration
 export const registerUser = (username, email, password, role, staffSecret = null) => 
   api.post("/auth/register", { username, email, password, role, staffSecret });
 
@@ -73,7 +88,7 @@ export const purchaseSubscription = (plan) =>
 // --- ORDERS ---
 export const getOrders = () => api.get("/orders"); // Staff only (Removed trailing slash)
 
-// 3. Added specific endpoint for customers to see their own orders
+// Added specific endpoint for customers to see their own orders
 export const getMyOrders = () => api.get("/orders/me"); 
 
 export const createOrder = (orderData) => 

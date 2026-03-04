@@ -1,0 +1,8 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/washwise_spring_db
+    username: postgres
+    password: YOUR_DB_PASSWORD_HERE
+app:
+  security:
+    jwt-secret: YOUR_JWT_SECRET_HERE

@@ -100,22 +100,6 @@ export default function ServicemanDashboard({ onLogout }) {
   const activeOrders = useMemo(() => orders.filter(isOrderActive), [orders]);
   const pastOrders = useMemo(() => orders.filter(order => !isOrderActive(order)), [orders]);
 
-  const customerActiveServices = useMemo(() => {
-    if (!selectedCustomer) return [];
-    // CHANGED: owner_id to ownerId
-    const customerActiveOrders = activeOrders.filter(o => o.ownerId === selectedCustomer.id);
-    // CHANGED: service_name to serviceName
-    return customerActiveOrders.flatMap(o => o.items.map(item => item.serviceName));
-  }, [selectedCustomer, activeOrders]);
-
-  const selectedCustomerActiveOrders = useMemo(() => {
-      if (!selectedCustomer) return [];
-      // CHANGED: owner_id to ownerId
-      return activeOrders
-        .filter(order => order.ownerId === selectedCustomer.id)
-        .flatMap(order => order.items.map(item => ({...item, orderId: order.id })));
-  }, [selectedCustomer, activeOrders]);
-
   const groupOrderItemsByService = (orderList) => {
     const grouped = {};
     const matchingCustomerIds = users
@@ -123,17 +107,19 @@ export default function ServicemanDashboard({ onLogout }) {
       .map(user => user.id);
 
     orderList.forEach(order => {
-      // CHANGED: created_at -> createdAt, owner_id -> ownerId
+      const orderDate = order.created_at || order.createdAt;
+      const ownerId = order.owner_id || order.ownerId;
+      
       if ((searchTerm && !order.id.toLowerCase().includes(searchTerm.toLowerCase())) ||
-          (dateFilter && new Date(order.createdAt).toDateString() !== new Date(dateFilter).toDateString()) ||
-          (customerFilter && !matchingCustomerIds.includes(order.ownerId))) {
+          (dateFilter && new Date(orderDate).toDateString() !== new Date(dateFilter).toDateString()) ||
+          (customerFilter && !matchingCustomerIds.includes(ownerId))) {
         return;
       }
       
-      const customer = users.find(u => u.id === order.ownerId);
+      const customer = users.find(u => u.id === ownerId);
       order.items.forEach(item => {
-        // CHANGED: Spring Boot returns names like "Wash and Iron". Convert it to "wash_and_iron" key format.
-        const serviceKey = item.serviceName ? item.serviceName.toLowerCase().replace(/ /g, '_') : 'unknown';
+        const serviceName = item.service_name || item.serviceName || 'unknown';
+        const serviceKey = serviceName.toLowerCase().replace(/ /g, '_');
 
         if (!grouped[serviceKey]) {
           grouped[serviceKey] = [];
@@ -143,8 +129,9 @@ export default function ServicemanDashboard({ onLogout }) {
           serviceKey: serviceKey,
           customerName: customer ? customer.username : 'Unknown',
           orderId: order.id,
-          orderDate: order.createdAt,
-          paymentStatus: order.paymentStatus || 'unpaid', // Fallback added
+          orderDate: orderDate,
+          orderTotalCost: order.total_cost || 0,
+          paymentStatus: order.payment_status || order.paymentStatus || 'unpaid', 
           nextStatuses: item.possibleNextStatuses || []
         });
       });
@@ -167,7 +154,7 @@ export default function ServicemanDashboard({ onLogout }) {
     const servicesToOrder = Object.entries(serviceQuantities)
         .filter(([_, quantity]) => quantity > 0)
         .map(([serviceKey, quantity]) => ({ 
-            serviceType: serviceKey.toUpperCase(), 
+            service_type: serviceKey.toUpperCase(), 
             quantity: Number(quantity) 
         }));
     
@@ -175,14 +162,13 @@ export default function ServicemanDashboard({ onLogout }) {
     
     try { 
         setLoading(true); 
-        await createOrder({ customerUsername: customerUsername, services: servicesToOrder }); 
+        await createOrder({ customer_username: customerUsername, services: servicesToOrder }); 
         setMessage(`Order for ${customerUsername} added successfully!`); 
         setCustomerUsername(""); 
         setServiceQuantities({}); 
         setShowSuggestions(false); 
         fetchOrders(); 
     } catch (err) { 
-        // Improved error extraction
         const errorMsg = err.response?.data?.detail || err.response?.data?.message || err.message;
         setMessage("Failed to add order: " + errorMsg); 
     } finally { 
@@ -232,14 +218,14 @@ export default function ServicemanDashboard({ onLogout }) {
   const handleCreateOrderFromQrFlow = async () => {
     const servicesToOrder = Object.entries(qrServiceQuantities)
       .filter(([_, qty]) => qty > 0)
-      .map(([serviceType, quantity]) => ({ serviceType, quantity: Number(quantity) }));
+      .map(([serviceType, quantity]) => ({ service_type: serviceType.toUpperCase(), quantity: Number(quantity) }));
 
     if (servicesToOrder.length === 0) {
       return setMessage("Please select at least one service.");
     }
     setLoading(true);
     try {
-      await createOrder({ customerUsername: customerForQrOrder.username, services: servicesToOrder });
+      await createOrder({ customer_username: customerForQrOrder.username, services: servicesToOrder });
       setMessage(`New order for ${customerForQrOrder.username} created successfully!`);
       resetQrScanner();
       fetchOrders();
@@ -310,9 +296,14 @@ export default function ServicemanDashboard({ onLogout }) {
     }, 0);
   };
   
-  const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}/${date.getFullYear()}`;
+  const formatDate = (d) => {
+    if (!d) return 'N/A';
+    if (Array.isArray(d)) {
+      const [year, month, day] = d;
+      return new Date(year, month - 1, day).toLocaleDateString();
+    }
+    const dateObj = new Date(d);
+    return isNaN(dateObj) ? 'N/A' : dateObj.toLocaleDateString();
   };
  
   const TABS = [
@@ -399,9 +390,12 @@ export default function ServicemanDashboard({ onLogout }) {
                             </div>
                             <div className="item-list-content">
                                 {itemsForActiveServiceTab.map((item, idx) => {
-                                    // CHANGED: Hooked up to the normalized serviceKey
                                     const workflow = SERVICE_WORKFLOWS[item.serviceKey] || [];
                                     const currentIndex = workflow.indexOf(item.status);
+                                    
+                                    // SECURITY: Check if paid or covered by plan
+                                    const isPaid = ['paid', 'completed'].includes((item.paymentStatus || '').toLowerCase()) || item.orderTotalCost === 0;
+
                                     return (
                                         <div key={item.id} className="item-row-card">
                                             <div className="item-col col-sl">{idx + 1}</div>
@@ -409,13 +403,20 @@ export default function ServicemanDashboard({ onLogout }) {
                                             <div className="item-col col-date">{formatDate(item.orderDate)}</div>
                                             <div className="item-col col-qty"><div className="qty-val">Qty: {item.quantity}</div><div className="cost-val">₹{item.cost}</div></div>
                                             <div className="item-col col-pay"><span className={`payment-badge ${item.paymentStatus.toLowerCase()}`}>{item.paymentStatus.toUpperCase()}</span></div>
-                                            <div className="item-col col-stat"><span className="status-badge" style={{backgroundColor: getStatusColor(item.status)}}>{item.status.replace(/_/g, " ")}</span></div>
+                                            <div className="item-col col-stat"><span className="status-badge" style={{backgroundColor: getStatusColor(item.status)}}>{(item.status || '').replace(/_/g, " ")}</span></div>
                                             {activeTab === 'active-orders' && (
                                                 <div className="item-col col-act">
                                                     <select value={item.status} onChange={(e) => handleStatusChange(item.id, e.target.value)} className="status-select">
-                                                        {workflow.map((status, statusIndex) => (
-                                                            <option key={status} value={status} disabled={statusIndex < currentIndex}>{status.replace(/_/g, " ")}</option>
-                                                        ))}
+                                                        {workflow.map((status, statusIndex) => {
+                                                            // SECURITY: Prevent marking as Picked Up if Unpaid
+                                                            const isDisabled = statusIndex < currentIndex || (status === 'picked_up' && !isPaid);
+                                                            const labelStr = status.replace(/_/g, " ");
+                                                            const labelText = (status === 'picked_up' && !isPaid) ? `${labelStr} (Pay First)` : labelStr;
+                                                            
+                                                            return (
+                                                                <option key={status} value={status} disabled={isDisabled}>{labelText}</option>
+                                                            );
+                                                        })}
                                                     </select>
                                                 </div>
                                             )}
@@ -439,15 +440,18 @@ export default function ServicemanDashboard({ onLogout }) {
                       <thead><tr><th>Username</th><th>Email</th><th>Membership</th><th>Total Orders</th><th>Active Orders</th></tr></thead>
                       <tbody>
                         {users.filter(u => u.role === "customer").map(user => { 
-                          // CHANGED: owner_id to ownerId, monthly_services_used to monthlyServicesUsed, membership_plan to membershipPlan
-                          const userOrders = orders.filter(o => o.ownerId === user.id); 
+                          const userOrders = orders.filter(o => o.owner_id === user.id); 
                           const activeUserOrders = userOrders.filter(o => isOrderActive(o)); 
-                          const totalServicesUsed = Object.values(user.monthlyServicesUsed || {}).reduce((sum, count) => sum + count, 0);
+                          const totalServicesUsed = Object.values(user.monthly_services_used || {}).reduce((sum, count) => sum + count, 0);
+                          const plan = (user.membership_plan || 'none').toLowerCase();
                           return (
                             <tr key={user.id} onClick={() => setSelectedCustomerForView(user)} className="clickable-row">
                               <td><div className="order-name">{user.username}</div></td>
                               <td>{user.email}</td>
-                              <td><span className="status-badge" style={{backgroundColor: getPlanColor(user.membershipPlan || 'none')}}>{getPlanLabel(user.membershipPlan || 'none')}</span>{(user.membershipPlan && user.membershipPlan !== 'NONE' && user.membershipPlan !== 'none') && <div className="services-used">Used: {totalServicesUsed}</div>}</td>
+                              <td>
+                                <span className="status-badge" style={{backgroundColor: getPlanColor(plan)}}>{getPlanLabel(plan)}</span>
+                                {(plan !== 'none') && <div className="services-used" style={{fontSize: '0.8rem', color: '#666', marginTop: '4px'}}>Used: {totalServicesUsed}</div>}
+                              </td>
                               <td className="text-center">{userOrders.length}</td>
                               <td className="text-center">{activeUserOrders.length}</td>
                             </tr>
@@ -466,27 +470,37 @@ export default function ServicemanDashboard({ onLogout }) {
                   <div className="card">
                     <h3 className="card-title">Active Orders</h3>
                     <div className="order-items-detail">
-                      {/* CHANGED: owner_id to ownerId */}
-                      {orders.filter(o => o.ownerId === selectedCustomerForView.id && isOrderActive(o)).flatMap(order => order.items.filter(item => item.status !== 'picked_up').map(item => {
-                        const serviceKey = item.serviceName ? item.serviceName.toLowerCase().replace(/ /g, '_') : 'unknown';
+                      {orders.filter(o => o.owner_id === selectedCustomerForView.id && isOrderActive(o)).flatMap(order => order.items.filter(item => item.status !== 'picked_up').map(item => {
+                        const serviceName = item.service_name || item.serviceName || 'unknown';
+                        const serviceKey = serviceName.toLowerCase().replace(/ /g, '_');
+                        
+                        // SECURITY: Check if paid or covered by plan
+                        const isPaid = ['paid', 'completed'].includes((order.payment_status || '').toLowerCase()) || (order.total_cost || 0) === 0;
+
                         return (
                         <div key={item.id} className="item-detail-card">
                           <div className="item-header">
-                            <div><span className="item-service">{item.serviceName} (Qty: {item.quantity})</span><div className="order-id">Order #{order.id.substring(0,8)}</div></div>
-                            <span className="status-badge" style={{backgroundColor: getStatusColor(item.status)}}>{item.status.replace("_", " ").toUpperCase()}</span>
+                            <div><span className="item-service">{serviceName.replace(/_/g, ' ')} (Qty: {item.quantity})</span><div className="order-id">Order #{order.id.substring(0,8)}</div></div>
+                            <span className="status-badge" style={{backgroundColor: getStatusColor(item.status)}}>{(item.status || '').replace("_", " ").toUpperCase()}</span>
                           </div>
                           <div className="item-controls">
                             <label>Update:</label>
                             <select value={item.status} onChange={(e) => handleStatusChange(item.id, e.target.value)} className="status-select">
                               {SERVICE_WORKFLOWS[serviceKey]?.map((status, statusIndex) => {
                                 const currentIndex = SERVICE_WORKFLOWS[serviceKey].indexOf(item.status);
-                                return ( <option key={status} value={status} disabled={statusIndex < currentIndex}>{status.replace(/_/g, " ")}</option> );
+                                
+                                // SECURITY: Prevent marking as Picked Up if Unpaid
+                                const isDisabled = statusIndex < currentIndex || (status === 'picked_up' && !isPaid);
+                                const labelStr = status.replace(/_/g, " ");
+                                const labelText = (status === 'picked_up' && !isPaid) ? `${labelStr} (Pay First)` : labelStr;
+
+                                return ( <option key={status} value={status} disabled={isDisabled}>{labelText}</option> );
                               })}
                             </select>
                           </div>
                         </div>
                       )}))}
-                      {orders.filter(o => o.ownerId === selectedCustomerForView.id && isOrderActive(o)).length === 0 && <p className="no-data">No active orders.</p>}
+                      {orders.filter(o => o.owner_id === selectedCustomerForView.id && isOrderActive(o)).length === 0 && <p className="no-data">No active orders.</p>}
                     </div>
                   </div>
                 </>
@@ -494,6 +508,7 @@ export default function ServicemanDashboard({ onLogout }) {
             </div>
           )}
 
+          {/* ... Add Order and Settings Tabs remain the same ... */}
           {activeTab === "add-order" && ( 
             <div className="tab-content">
               <div className="card">
@@ -504,12 +519,15 @@ export default function ServicemanDashboard({ onLogout }) {
                         <input placeholder="Type customer username..." value={customerUsername} onChange={(e) => { setCustomerUsername(e.target.value); setShowSuggestions(e.target.value.length > 0); }} onFocus={() => setShowSuggestions(customerUsername.length > 0)}/>
                         {showSuggestions && filteredCustomers.length > 0 && (
                           <div className="suggestions-box">
-                            {filteredCustomers.map((user) => (
-                              <div key={user.id} onClick={() => { setCustomerUsername(user.username); setShowSuggestions(false); }} className="suggestion-item">
-                                <div>{user.username}</div>
-                                <div className="suggestion-meta">Plan: {getPlanLabel(user.membershipPlan || 'none')}</div>
-                              </div>
-                            ))}
+                            {filteredCustomers.map((user) => {
+                              const plan = (user.membership_plan || 'none').toLowerCase();
+                              return (
+                                <div key={user.id} onClick={() => { setCustomerUsername(user.username); setShowSuggestions(false); }} className="suggestion-item">
+                                  <div>{user.username}</div>
+                                  <div className="suggestion-meta">Plan: {getPlanLabel(plan)}</div>
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
                     </div>
@@ -577,7 +595,6 @@ export default function ServicemanDashboard({ onLogout }) {
         * { box-sizing: border-box; }
       `}</style>
       <style jsx>{`
-        /* --- LAYOUT & SIDEBAR --- */
         .app-container { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
         .top-bar { position: absolute; top: 0; left: 0; right: 0; height: 65px; background-color: #ffffff; display: flex; align-items: center; justify-content: space-between; padding: 0 30px; border-bottom: 1px solid #dee2e6; z-index: 1000; }
         .logo-section { display: flex; align-items: center; gap: 15px; }
@@ -614,18 +631,15 @@ export default function ServicemanDashboard({ onLogout }) {
         .sidebar.collapsed .nav-label, .sidebar.collapsed .nav-count { display: none; }
         .sidebar.collapsed .sidebar-nav button { justify-content: center; padding: 0; width: 48px; height: 48px; border-radius: 50%; margin: 0 auto; }
 
-        /* --- CONTENT AREA --- */
         .content-area { flex-grow: 1; padding: 30px; overflow-y: auto; background-color: #f4f7f9; }
         .content-title { margin-bottom: 30px; font-size: 2rem; color: #2A2F45; }
         
-        /* --- CARDS & GRID --- */
         .card { background: white; border-radius: 12px; padding: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 20px; }
         .orders-card { padding: 0; }
         .grid { display: grid; gap: 20px; margin-bottom: 25px; }
         .three-cols { grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
         .two-cols { grid-template-columns: 1fr 1fr; gap: 30px; }
         
-        /* --- TABLES & LISTS --- */
         .item-list-header-wrapper { overflow-x: auto; }
         .item-list-content { overflow-x: auto; }
         .item-list-header { display: flex; padding: 15px 10px; border-bottom: 2px solid #dee2e6; font-weight: 700; color: #555; background: #f8f9fa; min-width: 800px; }
@@ -648,7 +662,6 @@ export default function ServicemanDashboard({ onLogout }) {
         .payment-badge.paid { background-color: #27ae60; }
         .payment-badge.unpaid { background-color: #e74c3c; }
         
-        /* --- SUB TABS --- */
         .sub-tab-nav { display: flex; border-bottom: 1px solid #dee2e6; padding: 0 20px; overflow-x: auto; }
         .sub-tab-item { padding: 15px 20px; border: none; background: none; cursor: pointer; color: #666; font-weight: 500; border-bottom: 3px solid transparent; white-space: nowrap; display: flex; align-items: center; gap: 8px; transition: color 0.2s; }
         .sub-tab-item:hover { color: #333; }
@@ -657,7 +670,6 @@ export default function ServicemanDashboard({ onLogout }) {
         .sub-tab-item.active .item-count-badge { background: #e8f8f5; color: #48C9B0; }
         .sub-tab-content { padding: 20px; }
         
-        /* --- CUSTOMER MANAGEMENT --- */
         .table-container { overflow-x: auto; }
         .data-table { width: 100%; border-collapse: collapse; min-width: 600px; }
         .data-table th { text-align: left; padding: 15px; background: #f8f9fa; color: #555; font-weight: 700; border-bottom: 2px solid #eee; }
@@ -672,7 +684,6 @@ export default function ServicemanDashboard({ onLogout }) {
         .item-service { font-weight: 700; font-size: 1.05rem; }
         .item-controls { display: flex; align-items: center; gap: 10px; }
         
-        /* --- FORMS & INPUTS --- */
         input, select { width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 1rem; transition: border 0.2s; }
         input:focus, select:focus { outline: none; border-color: #48C9B0; box-shadow: 0 0 0 3px rgba(72, 201, 176, 0.2); }
         .form-group { margin-bottom: 20px; }
@@ -682,7 +693,6 @@ export default function ServicemanDashboard({ onLogout }) {
         .btn-secondary { padding: 10px 20px; background: #95a5a6; color: white; border: none; border-radius: 8px; cursor: pointer; transition: background 0.2s; }
         .btn-secondary:hover { background: #7f8c8d; }
         
-        /* --- SCANNER & ADD ORDER --- */
         .qr-input-container { display: flex; gap: 15px; align-items: center; margin-bottom: 20px; }
         .qr-input-container input { flex: 1; }
         
@@ -698,7 +708,6 @@ export default function ServicemanDashboard({ onLogout }) {
         .quantity-control button { width: 32px; height: 32px; border-radius: 50%; border: 1px solid #ddd; background: white; cursor: pointer; font-size: 1.2rem; line-height: 1; display: grid; place-items: center; }
         .quantity-control input { width: 50px; text-align: center; padding: 5px; border: none; background: transparent; font-weight: bold; }
         
-        /* --- UTILS --- */
         .message { padding: 12px 20px; margin-bottom: 20px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; font-weight: 500; }
         .message.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
         .message.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }

@@ -13,7 +13,6 @@ import {
   payForOrder,
 } from "../api";
 
-// Import Shared Components
 import { 
   WashWiseLogo, IconOrders, IconHistory, IconAccount, 
   IconSettings, IconCheck, IconCross, IconMail, IconShield 
@@ -28,34 +27,27 @@ export default function CustomerDashboard({ onLogout }) {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   
-  // Modal States
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [modalImageSrc, setModalImageSrc] = useState('');
   const [isPaymentModalOpen, setPaymentModalOpen] = useState(false);
   const [paymentDetails, setPaymentDetails] = useState(null);
-  
-  // New State for Enlarged QR Code
   const [selectedQrValue, setSelectedQrValue] = useState(null);
 
-  // Settings State
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [myQrCodes, setMyQrCodes] = useState(null);
 
   const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
   const fetchData = async () => {
     try {
       if (!accountInfo) setLoading(true);
-      const [{ data: ordersData }, { data: accountData }, { data: qrCodesData }] = await Promise.all([
+      const [{ data: ordersData }, { data: accountData }] = await Promise.all([
         getOrders(),
         getAccountDetails(),
-        getMyStaticQRCodes()
       ]);
       setOrders(ordersData);
       setAccountInfo(accountData);
-      setMyQrCodes(qrCodesData);
     } catch (err) {
       console.error(err);
       if (!accountInfo) setMessage("Failed to load dashboard data.");
@@ -94,11 +86,7 @@ export default function CustomerDashboard({ onLogout }) {
     if (type === 'subscription') {
       setPaymentDetails({ 
         type: 'subscription', 
-        plan: {
-          name: data,
-          label: data === 'standard' ? 'Standard' : 'Premium',
-          price: data === 'standard' ? '5,000' : '10,000'
-        }
+        plan: { name: data, label: data === 'standard' ? 'Standard' : 'Premium', price: data === 'standard' ? '5,000' : '10,000' }
       });
     } else {
       setPaymentDetails({ type: 'order', order: data });
@@ -118,19 +106,14 @@ export default function CustomerDashboard({ onLogout }) {
     }
   };
 
-  // Helpers
   const getStatusColor = (status) => ({ pending: "#f39c12", started: "#3498db", washing: "#8e44ad", picked_up: "#95a5a6", ready_for_pickup: "#27ae60" })[status] || "#7f8c8d";
   const getPlanColor = (plan) => ({ none: "#95a5a6", standard: "#48C9B0", premium: "#9B59B6" })[plan] || "#6c757d";
   const getPlanLabel = (plan) => ({ none: "No Plan", standard: "Standard", premium: "Premium" })[plan] || plan;
   
   const formatDate = (d) => {
     if (!d) return 'N/A';
-    if (Array.isArray(d)) {
-      const [year, month, day] = d;
-      return new Date(year, month - 1, day).toLocaleDateString();
-    }
-    const dateObj = new Date(d);
-    return isNaN(dateObj) ? 'N/A' : dateObj.toLocaleDateString();
+    if (Array.isArray(d)) return new Date(d[0], d[1] - 1, d[2]).toLocaleDateString();
+    return isNaN(new Date(d)) ? 'N/A' : new Date(d).toLocaleDateString();
   };
   
   const calculateProgress = (serviceName, currentStatus) => {
@@ -139,34 +122,25 @@ export default function CustomerDashboard({ onLogout }) {
     return idx === -1 ? 0 : (idx / (workflow.length - 1)) * 100;
   };
 
+  // Grouped active orders instead of items
   const activeOrders = useMemo(() => orders.filter(o => !o.items.every(i => i.status === 'picked_up')), [orders]);
   const completedOrders = useMemo(() => orders.filter(o => o.items.every(i => i.status === 'picked_up')), [orders]);
   
-  const flattenedActiveItems = useMemo(() => activeOrders.flatMap(o => o.items.map(i => ({
-    ...i, 
-    orderId: o.id, 
-    orderTotalCost: o.total_cost || o.totalCost || 0,
-    orderCreatedAt: o.created_at || o.createdAt, 
-    paymentStatus: o.payment_status || o.paymentStatus || 'unpaid', 
-    orderQrCodeUrl: o.qr_code_url || o.qrCodeUrl
-  }))), [activeOrders]);
-  
   const totalServicesUsed = useMemo(() => {
-    if (!accountInfo || !accountInfo.monthly_services_used) return 0;
-    return Object.values(accountInfo.monthly_services_used).reduce((sum, count) => sum + count, 0);
+    const usage = accountInfo?.monthly_services_used || {};
+    return Object.values(usage).reduce((sum, count) => sum + count, 0);
   }, [accountInfo]);
+
+  const userPlan = (accountInfo?.membership_plan || 'none').toLowerCase();
 
   if (loading && !accountInfo) return <div className="loading-container"><div className="spinner"></div><p>Loading...</p></div>;
 
   const TABS = [
-    { id: "my-orders", label: "My Orders", icon: <IconOrders />, count: flattenedActiveItems.length },
+    { id: "my-orders", label: "My Orders", icon: <IconOrders />, count: activeOrders.length },
     { id: "order-history", label: "Order History", icon: <IconHistory /> },
     { id: "my-account", label: "My Account", icon: <IconAccount /> },
     { id: "settings", label: "Settings", icon: <IconSettings /> },
   ];
-
-  // FIX: Normalize the plan to lowercase to handle Spring Boot's uppercase Enums safely
-  const userPlan = (accountInfo?.membership_plan || 'none').toLowerCase();
 
   return (
     <div className="app-container">
@@ -225,54 +199,72 @@ export default function CustomerDashboard({ onLogout }) {
           {/* --- TAB: ACTIVE ORDERS --- */}
           {activeTab === "my-orders" && (
              <div className="orders-grid">
-               {flattenedActiveItems.length === 0 ? <div className="card no-data-card"><h3>No Active Services</h3><p>You currently don't have any active services.</p></div> : 
-               flattenedActiveItems.map(item => (
-                 <div className="card order-card" key={item.id}>
-                    <div className="card-header">
+               {activeOrders.length === 0 ? <div className="card no-data-card"><h3>No Active Orders</h3><p>You currently don't have any active orders.</p></div> : 
+               activeOrders.map(order => {
+                 const orderTotalCost = order.total_cost || 0;
+                 const paymentStatus = (order.payment_status || 'unpaid').toLowerCase();
+                 const isPaid = ['paid', 'completed'].includes(paymentStatus) || orderTotalCost === 0;
+
+                 return (
+                 <div className="card order-card" key={order.id}>
+                    <div className="card-header" style={{ alignItems: 'center' }}>
                       <div>
-                        <h3>{(item.service_name || '').replace(/_/g, ' ')}</h3>
-                        <p className="order-date">#{(item.orderId || '').substring(0,8)} • {formatDate(item.orderCreatedAt)}</p>
+                        <h3>Order #{order.id.substring(0,8)}</h3>
+                        <p className="order-date">{formatDate(order.created_at)}</p>
                       </div>
-                      <span className="status-badge" style={{backgroundColor: getStatusColor(item.status)}}>{(item.status || '').replace(/_/g, ' ')}</span>
+                      <span className="status-badge" style={{backgroundColor: isPaid ? '#27ae60' : '#e74c3c'}}>
+                         {isPaid ? 'PAID' : 'UNPAID'}
+                      </span>
                     </div>
+                    
                     <div className="card-body">
-                      <div className="item-row">
-                        <span className="item-qty">{item.quantity}x items</span>
-                        <span className="item-cost">₹{item.cost}</span>
+                      {/* GROUPED ITEMS */}
+                      <div className="items-container" style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                          {order.items.map(item => (
+                            <div key={item.id} className="order-item-group" style={{ paddingBottom: '10px', borderBottom: '1px solid #f1f3f5' }}>
+                                <div className="item-row" style={{ marginBottom: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <span className="item-name" style={{ fontWeight: 600, fontSize: '0.95rem', color: '#333', textTransform: 'capitalize' }}>
+                                        {(item.service_name || '').replace(/_/g, ' ')} ({item.quantity}x)
+                                    </span>
+                                    <span className="item-status" style={{ fontSize: '0.75rem', fontWeight: 'bold', padding: '3px 8px', borderRadius: '4px', color: 'white', backgroundColor: getStatusColor(item.status), textTransform: 'uppercase' }}>
+                                        {(item.status || '').replace(/_/g, ' ')}
+                                    </span>
+                                </div>
+                                <div className="progress-bar"><div className="progress-bar-inner" style={{width: `${calculateProgress(item.service_name, item.status)}%`}}></div></div>
+                            </div>
+                          ))}
                       </div>
-                      <div className="progress-bar"><div className="progress-bar-inner" style={{width: `${calculateProgress(item.service_name, item.status)}%`}}></div></div>
                       
-                      <div className="card-actions" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '15px' }}>
-                        
+                      {/* SINGLE PAYMENT & QR ACTION */}
+                      <div className="card-actions" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '10px' }}>
                         <div className="payment-status-area">
-                          {['paid', 'completed'].includes((item.paymentStatus || '').toLowerCase()) || item.orderTotalCost === 0 ? (
-                            <span className="paid-badge" style={{ background: '#d4edda', color: '#155724', padding: '6px 12px', borderRadius: '6px', fontWeight: 'bold', fontSize: '0.85rem' }}>✓ Order Paid</span>
+                          {isPaid ? (
+                            <span className="paid-badge" style={{ background: '#d4edda', color: '#155724', padding: '8px 12px', borderRadius: '6px', fontWeight: 'bold', fontSize: '0.85rem' }}>✓ Total: ₹{orderTotalCost}</span>
                           ) : (
-                            <button className="btn-primary pay-now-btn" onClick={() => handleOpenPaymentModal('order', { id: item.orderId, total_cost: item.orderTotalCost })}>
-                              Pay Order (₹{item.orderTotalCost})
+                            <button className="btn-primary pay-now-btn" onClick={() => handleOpenPaymentModal('order', { id: order.id, total_cost: orderTotalCost })}>
+                              Pay Now (₹{orderTotalCost})
                             </button>
                           )}
                         </div>
-
                         <div 
                           className="qr-container" 
                           style={{ background: 'white', padding: '6px', borderRadius: '6px', border: '1px solid #ddd', cursor: 'pointer', transition: 'transform 0.2s' }}
                           title="Click to Enlarge"
-                          onClick={() => setSelectedQrValue(JSON.stringify({ order_id: item.orderId }))}
+                          onClick={() => setSelectedQrValue(JSON.stringify({ order_id: order.id }))}
                           onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.05)'}
                           onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
                         >
                             <QRCode
                                 size={54}
                                 style={{ height: "auto", maxWidth: "100%", width: "100%" }}
-                                value={JSON.stringify({ order_id: item.orderId })}
+                                value={JSON.stringify({ order_id: order.id })}
                                 viewBox={`0 0 256 256`}
                             />
                         </div>
                       </div>
                     </div>
                  </div>
-               ))}
+               )})}
              </div>
           )}
 
@@ -287,9 +279,9 @@ export default function CustomerDashboard({ onLogout }) {
                       completedOrders.map(o => (
                         <tr key={o.id}>
                           <td>{(o.id || '').substring(0,8)}...</td>
-                          <td>{formatDate(o.created_at || o.createdAt)}</td>
-                          <td>₹{o.total_cost || o.totalCost}</td>
-                          <td><span className="status-badge" style={{backgroundColor: '#95a5a6'}}>Completed</span></td>
+                          <td>{formatDate(o.created_at)}</td>
+                          <td>₹{o.total_cost}</td>
+                          <td><span className="status-badge" style={{backgroundColor: '#95a5a6', padding: '5px 12px', borderRadius: '20px', color: 'white', fontSize: '0.75rem', fontWeight: 'bold'}}>Completed</span></td>
                         </tr>
                       ))}
                     </tbody>
@@ -331,7 +323,7 @@ export default function CustomerDashboard({ onLogout }) {
 
                 <div className="card subscription-card" style={{'--plan-color': getPlanColor(userPlan)}}>
                     <h3 className="card-title">Subscription Status</h3>
-                    <div className="plan-badge">{getPlanLabel(userPlan)} Plan</div>
+                    <div className="plan-badge">{getPlanLabel(userPlan)} {userPlan !== 'none' ? 'Plan' : ''}</div>
                     {userPlan !== 'none' ? (
                         <>
                             <p>Your plan is active and renews on <strong>{formatDate(new Date(new Date().setFullYear(new Date().getFullYear() + 1)))}</strong>.</p>
@@ -349,7 +341,6 @@ export default function CustomerDashboard({ onLogout }) {
                     <h3 className="card-title">Upgrade Your Plan</h3>
                     <div className="plans-container">
                         
-                        {/* STANDARD PLAN CARD */}
                         <div className={`plan-card standard ${userPlan === 'standard' ? 'active' : ''} ${userPlan === 'premium' ? 'unavailable' : ''}`}>
                             {userPlan === 'standard' && <div className="current-plan-banner">Current Plan</div>}
                             <div className="plan-header"><h4>Standard Plan</h4><p className="plan-price"><span>₹5,000</span>/year</p></div>
@@ -370,7 +361,6 @@ export default function CustomerDashboard({ onLogout }) {
                             </div>
                         </div>
 
-                        {/* PREMIUM PLAN CARD */}
                         <div className={`plan-card premium ${userPlan === 'premium' ? 'active' : ''}`}>
                             {userPlan === 'premium' && <div className="current-plan-banner">Current Plan</div>}
                             <div className="plan-header"><h4>Premium Plan</h4><p className="plan-price"><span>₹10,000</span>/year</p></div>
@@ -466,13 +456,12 @@ export default function CustomerDashboard({ onLogout }) {
         
         .card { background: white; border-radius: 12px; padding: 25px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); transition: transform 0.2s; margin-bottom: 20px; }
         .order-card:hover { transform: translateY(-3px); box-shadow: 0 8px 25px rgba(0,0,0,0.1); }
-        .card-header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 15px; }
+        .card-header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 15px; }
         .card-header h3 { margin: 0; font-size: 1.2rem; color: #333; text-transform: capitalize; }
         .order-date { font-size: 0.85rem; color: #888; margin-top: 5px; }
         .status-badge { padding: 5px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: bold; color: white; text-transform: uppercase; }
-        .card-body { display: flex; flex-direction: column; gap: 15px; }
-        .item-row { display: flex; justify-content: space-between; font-weight: 500; color: #555; }
-        .item-cost { font-weight: 700; color: #2A2F45; }
+        
+        .card-body { display: flex; flex-direction: column; gap: 5px; }
         .progress-bar { width: 100%; height: 8px; background: #eee; border-radius: 4px; overflow: hidden; }
         .progress-bar-inner { height: 100%; background: linear-gradient(90deg, #48C9B0, #3498db); transition: width 0.5s; }
         .btn-primary { padding: 10px 20px; background: #48C9B0; color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; transition: background 0.2s; }
@@ -534,11 +523,6 @@ export default function CustomerDashboard({ onLogout }) {
         .loading-container { height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; color: #666; }
         .spinner { width: 40px; height: 40px; border: 4px solid #eee; border-top: 4px solid #48C9B0; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        
-        .message { padding: 12px 20px; margin-bottom: 20px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
-        .message.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-        .message.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-        .message button { background: none; border: none; font-size: 1.2rem; cursor: pointer; color: inherit; }
       `}</style>
     </div>
   );

@@ -1,5 +1,7 @@
 package com.washwise.backend.domain.order;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonValue;
 import lombok.Getter;
 import java.util.Arrays;
 import java.util.List;
@@ -20,5 +22,18 @@ public enum LaundryServiceType {
         this.displayName = displayName;
         this.price = price;
         this.workflow = Arrays.asList(workflowStages);
+    }
+
+    @JsonCreator
+    public static LaundryServiceType fromString(String value) {
+        if (value == null) {
+            return null;
+        }
+        return LaundryServiceType.valueOf(value.toUpperCase());
+    }
+
+    @JsonValue
+    public String toJson() {
+        return this.name().toLowerCase();
     }
 }
