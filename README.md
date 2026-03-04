@@ -1,4 +1,5 @@
 # WashWise: Enterprise Laundry Management System
+![Java](https://img.shields.io/badge/Java-21+-ED8B00) ![Spring Boot](https://img.shields.io/badge/Spring_Boot-3.0-6DB33F) ![React](https://img.shields.io/badge/React-18-61DAFB) ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-316192) ![Hibernate](https://img.shields.io/badge/Hibernate-JPA-59666C) ![JWT](https://img.shields.io/badge/JWT-Stateless-000000) ![Vite](https://img.shields.io/badge/Vite-5.0-B73BFE) ![Docker](https://img.shields.io/badge/Docker-Compose-2CA5E0?logo=docker&logoColor=white)
 
 WashWise is a full-stack, role-based laundry management platform designed to streamline operations for both customers and service providers. This project utilizes a robust Java Spring Boot backend to ensure security, data integrity, and scalability, paired with a modern React.js frontend.
 
@@ -97,11 +98,3 @@ Washwise-java/
    npm run dev
    ```
    The frontend application will be accessible at `http://localhost:5173`.
-
-### Docker Setup
-To run the entire application stack (Database, Backend, and Frontend) using Docker containers:
-1. Ensure Docker Desktop is running.
-2. From the root directory (`Washwise-java`), execute:
-   ```bash
-   docker-compose up --build
-   ```
