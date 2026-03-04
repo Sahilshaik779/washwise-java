@@ -105,12 +105,3 @@ To run the entire application stack (Database, Backend, and Frontend) using Dock
    ```bash
    docker-compose up --build
    ```
-
-## Security Implementation
-
-The platform ensures data security through robust Spring Security configurations. All protected endpoints require a valid Bearer Token (JWT) provided in the HTTP Authorization header. The stateless nature of the JWTs allows for highly scalable and secure role verification for both Customer and Serviceman endpoints.
-
-## Author
-
-**Sahil**
-* B.Tech Computer Science, VIT-AP University (Ranked Top 1% of cohort)
